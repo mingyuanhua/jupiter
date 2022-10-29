@@ -67,5 +67,4 @@ public class Game {
             return new Game(this);
         }
     }
-
 }
