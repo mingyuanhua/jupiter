@@ -8,6 +8,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 
 @Service
@@ -17,7 +19,6 @@ public class RecommendationService {
     private static final int DEFAULT_TOTAL_RECOMMENDATION_LIMIT = 20;
     @Autowired
     private GameService gameService;
-
 
     @Autowired
     private FavoriteDao favoriteDao;
@@ -44,6 +45,7 @@ public class RecommendationService {
         }
         return recommendedItems;
     }
+
     // Return a list of Item objects for the given type. Types are one of [Stream, Video, Clip]. All items are related to the items previously favorited by the user. E.g., if a user favorited some videos about game "Just Chatting", then it will return some other videos about the same game.
     private List<Item> recommendByFavoriteHistory(
             Set<String> favoritedItemIds, List<String> favoritedGameIds, ItemType type) throws RecommendationException {
@@ -53,23 +55,19 @@ public class RecommendationService {
             favoriteGameIdByCount.put(gameId, favoriteGameIdByCount.getOrDefault(gameId, 0L) + 1);
         }
         // Sort the game Id by count. E.g. if the input is {"1234": 1, "2345": 2, "3456": 1}, the returned Map is {"2345": 2, "1234": 1, "3456": 1}
-        List<Map.Entry<String, Long>> sortedFavoriteGameIdListByCount = new ArrayList<>(
-                favoriteGameIdByCount.entrySet());
-        sortedFavoriteGameIdListByCount.sort((Map.Entry<String, Long> e1, Map.Entry<String, Long> e2) -> Long
-                .compare(e2.getValue(), e1.getValue()));
+        List<Map.Entry<String, Long>> sortedFavoriteGameIdListByCount = new ArrayList<>(favoriteGameIdByCount.entrySet());
+        // Comparator
+        sortedFavoriteGameIdListByCount
+                .sort((Map.Entry<String, Long> e1, Map.Entry<String, Long> e2) -> Long.compare(e2.getValue(), e1.getValue()));
         // See also: https://stackoverflow.com/questions/109383/sort-a-mapkey-value-by-values
-
 
         if (sortedFavoriteGameIdListByCount.size() > DEFAULT_GAME_LIMIT) {
             sortedFavoriteGameIdListByCount = sortedFavoriteGameIdListByCount.subList(0, DEFAULT_GAME_LIMIT);
         }
 
-
         List<Item> recommendedItems = new ArrayList<>();
 
-
         // Search Twitch based on the favorite game IDs returned in the last step.
-
         for (Map.Entry<String, Long> favoriteGame : sortedFavoriteGameIdListByCount) {
             List<Item> items;
             try {
@@ -77,8 +75,6 @@ public class RecommendationService {
             } catch (TwitchException e) {
                 throw new RecommendationException("Failed to get recommendation result");
             }
-
-
             for (Item item : items) {
                 if (recommendedItems.size() == DEFAULT_TOTAL_RECOMMENDATION_LIMIT) {
                     return recommendedItems;
@@ -93,12 +89,20 @@ public class RecommendationService {
     // Return a map of Item objects as the recommendation result. Keys of the may are [Stream, Video, Clip]. Each key is corresponding to a list of Items objects, each item object is a recommended item based on the previous favorite records by the user.
     public Map<String, List<Item>> recommendItemsByUser(String userId) throws RecommendationException {
         Map<String, List<Item>> recommendedItemMap = new HashMap<>();
+        Set<Item> favoriteItems;
         Set<String> favoriteItemIds;
         Map<String, List<String>> favoriteGameIds;
 
 
-        favoriteItemIds = favoriteDao.getFavoriteItemIds(userId);
-        favoriteGameIds = favoriteDao.getFavoriteGameIds(favoriteItemIds);
+        favoriteItems = favoriteDao.getFavoriteItems(userId);
+        favoriteItemIds = favoriteItems.stream().map(new Function<Item, String>() {
+            @Override
+            public String apply(Item item) {
+                return item.getId();
+            }
+        }).collect(Collectors.toSet());
+
+        favoriteGameIds = favoriteDao.getFavoriteGameIds(favoriteItems);
 
 
         for (Map.Entry<String, List<String>> entry : favoriteGameIds.entrySet()) {
